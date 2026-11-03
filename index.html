@@ -144,7 +144,7 @@
                     </div>
 
                     <div class="bg-blue-50 p-2.5 rounded-xl border border-blue-100 text-[11px] text-blue-800">
-                        Only 1 system administrator is permitted. Once registered, all subsequent offices can only register as departmental viewer accounts unless the admin account is deleted.
+                        Only 1 system administrator is permitted. Account deletion and system reset privileges are strictly reserved for the Administrator.
                     </div>
 
                     <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2 text-xs">
@@ -486,8 +486,15 @@
                 <!-- TAB 3: OFFICE SECURITY & PIN MANAGEMENT -->
                 <section id="tabBacSettings" class="tab-content hidden space-y-6">
                     <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                        <h3 class="text-base font-extrabold text-slate-900 mb-1">Office Security Credentials & PIN Management</h3>
-                        <p class="text-xs text-slate-500 mb-6">Each office is restricted to updating only its own authorized password, contact email, and 4-digit approval PIN. Deleting the Administrator account automatically resets all system records and transactions back to initial state.</p>
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="text-base font-extrabold text-slate-900 mb-1">Office Security Credentials & PIN Management</h3>
+                                <p class="text-xs text-slate-500">Manage registered office accounts, credentials, and security PINs. Note: Only the System Administrator has authority to delete registered accounts.</p>
+                            </div>
+                            <div id="adminControlNoticeBadge" class="hidden px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                                <i data-lucide="lock" class="w-4 h-4 text-amber-700"></i> Account Deletion Restricted to Admin Only
+                            </div>
+                        </div>
 
                         <div class="overflow-x-auto">
                             <table class="w-full text-left border-collapse text-xs">
@@ -1759,12 +1766,22 @@
             closeActionRemarksModal();
         }
 
-        // SECURITY CREDENTIALS ENGINE & ADMIN RESET RULE
+        // SECURITY CREDENTIALS ENGINE & STRICT ADMIN DELETION ACCESS CONTROL RULE
         function renderPinSettingsTable() {
             const tbody = document.getElementById('officePinTableBody');
+            const noticeBadge = document.getElementById('adminControlNoticeBadge');
             if (!tbody) return;
 
             const registeredOffices = Object.keys(officeCredentials);
+            const currentUserIsAdmin = (currentUser && currentUser.role === 'ADMIN');
+
+            if (noticeBadge) {
+                if (!currentUserIsAdmin) {
+                    noticeBadge.classList.remove('hidden');
+                } else {
+                    noticeBadge.classList.add('hidden');
+                }
+            }
 
             if (registeredOffices.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400 italic font-medium">No offices registered yet. Use the 'Register New Office' tab above to create an account.</td></tr>`;
@@ -1774,7 +1791,16 @@
             tbody.innerHTML = registeredOffices.map(office => {
                 const cred = officeCredentials[office];
                 const isCurrentLoggedOffice = (currentUser && currentUser.office === office);
-                const isAdmin = cred.role === 'ADMIN';
+                const isTargetAdminAccount = cred.role === 'ADMIN';
+
+                // Determine if current user has rights to delete this office account (STRICTLY ADMIN ONLY)
+                let deleteButtonHTML = "";
+
+                if (currentUserIsAdmin) {
+                    deleteButtonHTML = `<button onclick="deleteOfficeAccount('${office}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition shadow-sm" title="Delete Account">Delete</button>`;
+                } else {
+                    deleteButtonHTML = `<span class="px-2 py-1 bg-slate-100 text-slate-400 rounded-lg text-[10px] font-bold border border-slate-200 cursor-not-allowed" title="Account Deletion Restricted to Administrator Only">Delete Restricted</span>`;
+                }
 
                 return `
                     <tr class="${isCurrentLoggedOffice ? 'bg-blue-50/60 border-l-4 border-blue-600' : 'hover:bg-slate-50'} transition">
@@ -1782,7 +1808,7 @@
                             ${office}
                             ${isCurrentLoggedOffice ? '<span class="px-1.5 py-0.5 bg-blue-600 text-white rounded text-[9px] font-bold uppercase">Logged In</span>' : ''}
                         </td>
-                        <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${isAdmin ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}">${cred.role}</span></td>
+                        <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${isTargetAdminAccount ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}">${cred.role}</span></td>
                         <td class="p-3">
                             ${isCurrentLoggedOffice ? `<input type="email" value="${cred.email || ''}" id="email-input-${office.replace(/[^a-zA-Z0-9]/g, '')}" class="w-40 px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono">` : `<span class="font-mono text-slate-500">${cred.email || 'N/A'}</span>`}
                         </td>
@@ -1794,7 +1820,7 @@
                         </td>
                         <td class="p-3 text-right space-x-2">
                             ${isCurrentLoggedOffice ? `<button onclick="updateOfficeSecurity('${office}')" class="px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition shadow-sm">Update</button>` : ''}
-                            <button onclick="deleteOfficeAccount('${office}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition shadow-sm" title="Delete Account">Delete</button>
+                            ${deleteButtonHTML}
                         </td>
                     </tr>
                 `;
@@ -1828,13 +1854,20 @@
             renderPinSettingsTable();
         }
 
+        // STRICT ADMIN ACCOUNT DELETION CONTROL FUNCTION
         function deleteOfficeAccount(office) {
-            const cred = officeCredentials[office];
-            const isAdmin = cred && cred.role === 'ADMIN';
+            // Enforcement Check: Strict Admin Only Access Control
+            if (!currentUser || currentUser.role !== 'ADMIN') {
+                showToast("ACCESS DENIED: Only the System Administrator has authority to delete registered accounts.", "error");
+                return;
+            }
 
-            if (isAdmin) {
+            const cred = officeCredentials[office];
+            const isTargetAdminAccount = cred && cred.role === 'ADMIN';
+
+            if (isTargetAdminAccount) {
                 if (confirm(`WARNING: You are about to delete the Administrator account ("${office}"). Doing so will instantly wipe all custom office accounts, transactions, and reset the entire system back to its initial state. Proceed?`)) {
-                    // Full System Reset back to default
+                    // Full System Reset back to default state
                     localStorage.removeItem('pts_credentials');
                     localStorage.removeItem('pts_documents');
                     localStorage.removeItem('pts_sync_queue');
@@ -1847,21 +1880,16 @@
                     inspectedOffice = null;
 
                     showAuth();
-                    showToast("Admin account deleted. System fully reset to initial default state.", "success");
+                    showToast("Administrator account deleted. System fully reset to initial state.", "success");
                 }
             } else {
-                if (currentUser && currentUser.office === office) {
-                    showToast("You cannot delete your currently logged-in account from this screen. Please logout first.", "error");
-                    return;
-                }
-
-                if (confirm(`Are you sure you want to delete the account for "${office}"?`)) {
+                if (confirm(`ADMIN CONFIRMATION: Are you sure you want to permanently delete the registered office account for "${office}"?`)) {
                     delete officeCredentials[office];
                     saveState();
                     populateAuthOfficeDropdowns();
                     updateRegistrationRoleDropdown();
                     renderPinSettingsTable();
-                    showToast(`Office account "${office}" has been deleted.`, "info");
+                    showToast(`Office account "${office}" successfully deleted by Administrator.`, "info");
                 }
             }
         }
